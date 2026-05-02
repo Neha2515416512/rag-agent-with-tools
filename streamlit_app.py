@@ -4,13 +4,43 @@ from agent import llm_with_tools, tool_map
 import os
 
 # Auto-ingest PDF if vector DB doesn't exist (first run on cloud)
-if not os.path.exists("./chroma_db"):
-    with st.spinner("📚 Setting up knowledge base for the first time (1-2 min)..."):
-        import ingest
-    st.success("✅ Ready!")
-st.set_page_config(page_title="My RAG Agent", page_icon="🤖")
-st.title("🤖 RAG Agent with Tools")
+import os
 
+# Auto-ingest PDF on first run (with debugging)
+if not os.path.exists("./chroma_db"):
+    st.warning("📚 No vector database found. Building it now...")
+    
+    # Check that data folder and PDF exist
+    if not os.path.exists("./data"):
+        st.error("❌ 'data' folder not found in repo!")
+        st.stop()
+    
+    pdfs = [f for f in os.listdir("./data") if f.endswith(".pdf")]
+    if not pdfs:
+        st.error("❌ No PDF files found in 'data' folder!")
+        st.stop()
+    
+    st.info(f"📄 Found PDFs: {pdfs}")
+    
+    try:
+        with st.spinner("Ingesting PDF(s) into vector database..."):
+            import ingest
+        st.success("✅ Vector database ready!")
+    except Exception as e:
+        st.error(f"❌ Ingestion failed: {e}")
+        st.stop()
+else:
+    # DB exists — show what's in it for debugging
+    import chromadb
+    try:
+        client = chromadb.PersistentClient(path="./chroma_db")
+        collections = client.list_collections()
+        if collections:
+            count = collections[0].count()
+            st.sidebar.info(f"📚 Knowledge base: {count} chunks loaded")
+    except Exception as e:
+        st.sidebar.warning(f"DB check skipped: {e}")
+        
 # Initialize session state for messages
 if "messages" not in st.session_state:
     st.session_state.messages = [
