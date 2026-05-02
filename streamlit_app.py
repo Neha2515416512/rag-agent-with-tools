@@ -1,46 +1,66 @@
+# streamlit_app.py
 import streamlit as st
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from agent import llm_with_tools, tool_map
 import os
+import sys
 
-# Auto-ingest PDF if vector DB doesn't exist (first run on cloud)
-import os
+# ============ Auto-ingest PDF on first cloud run ============
+needs_ingestion = not os.path.exists("./chroma_db") or len(os.listdir("./chroma_db")) == 0
 
-# Auto-ingest PDF on first run (with debugging)
-if not os.path.exists("./chroma_db"):
-    st.warning("📚 No vector database found. Building it now...")
-    
-    # Check that data folder and PDF exist
+if needs_ingestion:
+    st.warning("📚 Building vector database from PDF...")
+
+    # Verify data folder
     if not os.path.exists("./data"):
         st.error("❌ 'data' folder not found in repo!")
         st.stop()
-    
-    pdfs = [f for f in os.listdir("./data") if f.endswith(".pdf")]
+
+    pdfs = [f for f in os.listdir("./data") if f.lower().endswith(".pdf")]
+    st.info(f"📄 Files in data/: {os.listdir('./data')}")
+    st.info(f"📑 PDFs detected: {pdfs}")
+
     if not pdfs:
         st.error("❌ No PDF files found in 'data' folder!")
         st.stop()
-    
-    st.info(f"📄 Found PDFs: {pdfs}")
-    
+
     try:
-        with st.spinner("Ingesting PDF(s) into vector database..."):
+        with st.spinner("⏳ Embedding PDF (1-2 min on first run)..."):
+            if "ingest" in sys.modules:
+                del sys.modules["ingest"]
             import ingest
-        st.success("✅ Vector database ready!")
-    except Exception as e:
-        st.error(f"❌ Ingestion failed: {e}")
-        st.stop()
-else:
-    # DB exists — show what's in it for debugging
-    import chromadb
-    try:
+
+        st.success("✅ Vector database built successfully!")
+
+        import chromadb
         client = chromadb.PersistentClient(path="./chroma_db")
         collections = client.list_collections()
         if collections:
             count = collections[0].count()
-            st.sidebar.info(f"📚 Knowledge base: {count} chunks loaded")
+            st.success(f"📊 {count} chunks loaded into vector database")
+
     except Exception as e:
-        st.sidebar.warning(f"DB check skipped: {e}")
-        
+        st.error("❌ Ingestion failed with error:")
+        st.exception(e)
+        st.stop()
+
+else:
+    try:
+        import chromadb
+        client = chromadb.PersistentClient(path="./chroma_db")
+        collections = client.list_collections()
+        if collections:
+            count = collections[0].count()
+            st.sidebar.success(f"📚 KB: {count} chunks loaded")
+        else:
+            st.sidebar.warning("⚠️ KB exists but is empty")
+    except Exception as e:
+        st.sidebar.warning(f"DB check failed: {e}")
+
+# ============ Streamlit UI Setup ============
+st.set_page_config(page_title="My RAG Agent", page_icon="🤖")
+st.title("🤖 RAG Agent with Tools")
+
 # Initialize session state for messages
 if "messages" not in st.session_state:
     st.session_state.messages = [
