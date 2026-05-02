@@ -4,84 +4,69 @@ from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from agent import llm_with_tools, tool_map
 import os
 import sys
+import shutil
 
-# ============ Auto-ingest PDF on first cloud run ============
-needs_ingestion = not os.path.exists("./chroma_db") or len(os.listdir("./chroma_db")) == 0
-
-if needs_ingestion:
-    st.warning("📚 Building vector database from PDF...")
-
-    # Verify data folder
-    if not os.path.exists("./data"):
-        st.error("❌ 'data' folder not found in repo!")
-        st.stop()
-
-    pdfs = [f for f in os.listdir("./data") if f.lower().endswith(".pdf")]
-    st.info(f"📄 Files in data/: {os.listdir('./data')}")
-    st.info(f"📑 PDFs detected: {pdfs}")
-
-    if not pdfs:
-        st.error("❌ No PDF files found in 'data' folder!")
-        st.stop()
-
+# ============ Auto-ingest PDF on every cold start ============
+if os.path.exists("./chroma_db"):
     try:
-        with st.spinner("⏳ Embedding PDF (1-2 min on first run)..."):
-            if "ingest" in sys.modules:
-                del sys.modules["ingest"]
-            import ingest
+        shutil.rmtree("./chroma_db")
+    except (PermissionError, OSError):
+        pass  # Windows file lock — fine, we'll continue
 
-        st.success("✅ Vector database built successfully!")
+st.warning("📚 Building vector database from PDF...")
 
-        import chromadb
-        client = chromadb.PersistentClient(path="./chroma_db")
-        collections = client.list_collections()
-        if collections:
-            count = collections[0].count()
-            st.success(f"📊 {count} chunks loaded into vector database")
+if not os.path.exists("./data"):
+    st.error("❌ 'data' folder not found in repo!")
+    st.stop()
 
-    except Exception as e:
-        st.error("❌ Ingestion failed with error:")
-        st.exception(e)
-        st.stop()
+pdfs = [f for f in os.listdir("./data") if f.lower().endswith(".pdf")]
+st.info(f"📄 Files in data/: {os.listdir('./data')}")
+st.info(f"📑 PDFs detected: {pdfs}")
 
-else:
-    try:
-        import chromadb
-        client = chromadb.PersistentClient(path="./chroma_db")
-        collections = client.list_collections()
-        if collections:
-            count = collections[0].count()
-            st.sidebar.success(f"📚 KB: {count} chunks loaded")
-        else:
-            st.sidebar.warning("⚠️ KB exists but is empty")
-    except Exception as e:
-        st.sidebar.warning(f"DB check failed: {e}")
+if not pdfs:
+    st.error("❌ No PDF files found in 'data' folder!")
+    st.stop()
+
+try:
+    with st.spinner("⏳ Embedding PDF (1-2 min on first run)..."):
+        if "ingest" in sys.modules:
+            del sys.modules["ingest"]
+        import ingest
+
+    st.success("✅ Vector database built successfully!")
+
+    import chromadb
+    client = chromadb.PersistentClient(path="./chroma_db")
+    collections = client.list_collections()
+    if collections:
+        count = collections[0].count()
+        st.success(f"📊 {count} chunks loaded into vector database")
+
+except Exception as e:
+    st.error("❌ Ingestion failed with error:")
+    st.exception(e)
+    st.stop()
 
 # ============ Streamlit UI Setup ============
 st.set_page_config(page_title="My RAG Agent", page_icon="🤖")
 st.title("🤖 RAG Agent with Tools")
 
-# Initialize session state for messages
 if "messages" not in st.session_state:
     st.session_state.messages = [
         SystemMessage(content="You are a helpful assistant. Use tools when needed.")
     ]
-    st.session_state.display = []  # what to show in the UI
+    st.session_state.display = []
 
-# Show chat history
 for role, content in st.session_state.display:
     with st.chat_message(role):
         st.write(content)
 
-# Chat input
 if user_input := st.chat_input("Ask me anything..."):
-    # Show user message
     with st.chat_message("user"):
         st.write(user_input)
     st.session_state.display.append(("user", user_input))
     st.session_state.messages.append(HumanMessage(content=user_input))
 
-    # Get response
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             ai_msg = llm_with_tools.invoke(st.session_state.messages)
