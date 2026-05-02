@@ -1,61 +1,66 @@
 # ingest.py
-# Purpose: Load PDF → Chunk it → Embed → Store in ChromaDB
-import shutil, os
-if os.path.exists("./chroma_db"):
-    shutil.rmtree("./chroma_db")
+# Purpose: Load PDF → Chunk → Embed → Store in ChromaDB
 
-from dotenv import load_dotenv
-
-# At the start of ingest.py, before creating the vector store:
-if os.path.exists("./chroma_db"):
-    print("🗑️  Removing existing ChromaDB to avoid duplicates...")
-    shutil.rmtree("./chroma_db")
-
-
+import os
+import shutil
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
-# Load environment variables (API keys) from .env
-load_dotenv()
 
-# ---------- STEP 1: LOAD DOCUMENT ----------
-print("📄 Loading PDF...")
-pdf_path = "data/sample.pdf"   # change to your file name
+# Use writable directory: /tmp on cloud, ./chroma_db locally
+def get_db_path():
+    """Return a writable path for ChromaDB."""
+    if os.path.exists("/tmp"):
+        return "/tmp/chroma_db"
+    return "./chroma_db"
+
+DB_PATH = get_db_path()
+
+# Auto-detect any PDF in data/ folder
+DATA_DIR = "./data"
+pdfs = [f for f in os.listdir(DATA_DIR) if f.lower().endswith(".pdf")]
+
+if not pdfs:
+    raise FileNotFoundError(f"No PDFs found in {DATA_DIR}")
+
+pdf_path = os.path.join(DATA_DIR, pdfs[0])
+print(f"📄 Loading PDF: {pdf_path}")
+
+# Remove old DB if exists
+if os.path.exists(DB_PATH):
+    try:
+        shutil.rmtree(DB_PATH)
+        print(f"🗑️  Removed old DB at {DB_PATH}")
+    except Exception as e:
+        print(f"⚠️ Could not remove old DB: {e}")
+
+# Load PDF
 loader = PyPDFLoader(pdf_path)
 documents = loader.load()
 print(f"✅ Loaded {len(documents)} pages")
 
-
-# ---------- STEP 2: CHUNKING ----------
-# Why? LLMs have token limits. We split big text into small chunks.
-print("✂️ Splitting into chunks...")
+# Chunk
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1000,        # bigger chunks = more context per retrieval
-    chunk_overlap=150,      # ~15% overlap, good rule of thumb
-    separators=["\n\n", "\n", ". ", " ", ""],  # split on paragraph breaks first
+    chunk_size=1000,
+    chunk_overlap=150,
+    separators=["\n\n", "\n", ". ", " ", ""],
 )
 chunks = text_splitter.split_documents(documents)
 print(f"✅ Created {len(chunks)} chunks")
 
-
-# ---------- STEP 3: EMBEDDING ----------
-# Convert text chunks into numerical vectors (so computer can compare meaning)
-# Using free HuggingFace model (no API cost)
-print("🔢 Creating embeddings...")
+# Embed
 embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
+print("🔢 Created embeddings model")
 
-
-# ---------- STEP 4: STORE IN VECTOR DB ----------
-# ChromaDB stores vectors locally on your computer
-print("💾 Storing in ChromaDB...")
+# Store
 vectorstore = Chroma.from_documents(
     documents=chunks,
     embedding=embeddings,
-    persist_directory="./chroma_db"   # saves to disk
+    persist_directory=DB_PATH
 )
 
-print("🎉 Ingestion complete! Vector DB saved at ./chroma_db")
+print(f"🎉 Ingestion complete! {len(chunks)} chunks saved to {DB_PATH}")

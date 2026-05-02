@@ -2,8 +2,19 @@
 from langchain_core.tools import tool
 import datetime
 import math
+import os
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
+
+
+def get_db_path():
+    """Return the same writable path as ingest.py."""
+    if os.path.exists("/tmp"):
+        return "/tmp/chroma_db"
+    return "./chroma_db"
+
+DB_PATH = get_db_path()
+
 
 @tool
 def get_current_time() -> str:
@@ -19,7 +30,6 @@ def calculator(expression: str) -> str:
     Use this for any arithmetic, e.g. '2 + 2', '15 * 23', 'sqrt(144)'.
     Supports +, -, *, /, **, sqrt, sin, cos, log, pi, e."""
     try:
-        # Safe-ish eval: only allow math functions
         allowed = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
         result = eval(expression, {"__builtins__": {}}, allowed)
         return f"Result: {result}"
@@ -43,14 +53,14 @@ def reverse_text(text: str) -> str:
     reverse, flip, or read backwards any text."""
     return text[::-1]
 
+
 # ---- Vector store setup (loaded once when this file is imported) ----
-# Must use the SAME embedding model as ingest.py
 _embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
 _vectorstore = Chroma(
-    persist_directory="./chroma_db",
+    persist_directory=DB_PATH,
     embedding_function=_embeddings,
 )
 
@@ -77,11 +87,13 @@ def search_documents(query: str) -> str:
     if not docs:
         return "No relevant information found in the documents."
     return "\n\n---\n\n".join(d.page_content for d in docs)
+
+
 # Export as a list so agent.py can import them all at once
 all_tools = [
     get_current_time,
     calculator,
     word_counter,
     reverse_text,
-    search_documents,   # ← add this
+    search_documents,
 ]
