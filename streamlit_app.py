@@ -30,11 +30,12 @@ with st.sidebar:
     
     # File uploader
     uploaded_files = st.file_uploader(
-        "Upload PDF documents",
-        type=["pdf"],
-        accept_multiple_files=True,
-        help="Upload one or more PDFs to ask questions about them"
-    )
+    "Upload documents",
+    type=["pdf", "txt", "docx", "md"],
+    accept_multiple_files=True,
+    help="Upload PDFs, Word docs, text files, or Markdown files"
+)
+    
     
     # Process uploads button
     if uploaded_files and st.button("📥 Process documents", type="primary"):
