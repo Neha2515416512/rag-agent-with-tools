@@ -21,6 +21,7 @@ if os.path.exists(DB_PATH):
         shutil.rmtree(DB_PATH)
     except (PermissionError, OSError):
         pass
+    os.makedirs(DB_PATH, exist_ok=True)
 
 st.warning("📚 Building vector database from PDF...")
 

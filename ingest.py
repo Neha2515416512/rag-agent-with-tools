@@ -9,7 +9,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
 
-# Use writable directory: /tmp on cloud, ./chroma_db locally
 def get_db_path():
     """Return a writable path for ChromaDB."""
     if os.path.exists("/tmp"):
@@ -35,6 +34,10 @@ if os.path.exists(DB_PATH):
         print(f"🗑️  Removed old DB at {DB_PATH}")
     except Exception as e:
         print(f"⚠️ Could not remove old DB: {e}")
+
+# 🆕 CRITICAL: Create the directory before ChromaDB tries to use it
+os.makedirs(DB_PATH, exist_ok=True)
+print(f"📁 Created directory: {DB_PATH}")
 
 # Load PDF
 loader = PyPDFLoader(pdf_path)
