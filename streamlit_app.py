@@ -7,58 +7,104 @@ import sys
 import shutil
 import tempfile
 
-
+# ============ Setup ============
 def get_db_path():
     temp_dir = tempfile.gettempdir()
     return os.path.join(temp_dir, "rag_faiss_db")
 
+def get_upload_path():
+    temp_dir = tempfile.gettempdir()
+    upload_dir = os.path.join(temp_dir, "user_uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    return upload_dir
+
 DB_PATH = get_db_path()
+UPLOAD_PATH = get_upload_path()
 
-# Clean up old DB to force fresh ingestion
-if os.path.exists(DB_PATH):
-    try:
-        shutil.rmtree(DB_PATH)
-    except (PermissionError, OSError):
-        pass
-
-st.warning("📚 Building vector database from PDF...")
-
-if not os.path.exists("./data"):
-    st.error("❌ 'data' folder not found in repo!")
-    st.stop()
-
-pdfs = [f for f in os.listdir("./data") if f.lower().endswith(".pdf")]
-st.info(f"📄 Files in data/: {os.listdir('./data')}")
-st.info(f"📑 PDFs detected: {pdfs}")
-st.info(f"💾 Using DB path: {DB_PATH}")
-
-if not pdfs:
-    st.error("❌ No PDF files found!")
-    st.stop()
-
-try:
-    with st.spinner("⏳ Embedding PDF (1-2 min on first run)..."):
-        if "ingest" in sys.modules:
-            del sys.modules["ingest"]
-        import ingest
-
-    st.success("✅ Vector database built successfully!")
-
-    # Verify FAISS files exist
-    if os.path.exists(os.path.join(DB_PATH, "index.faiss")):
-        st.success("📊 FAISS index ready")
-    else:
-        st.warning("⚠️ FAISS index file not found")
-
-except Exception as e:
-    st.error("❌ Ingestion failed:")
-    st.exception(e)
-    st.stop()
-
-# ============ Streamlit UI ============
 st.set_page_config(page_title="My RAG Agent", page_icon="🤖")
 st.title("🤖 RAG Agent with Tools")
 
+# ============ Sidebar: PDF Upload ============
+with st.sidebar:
+    st.header("📄 Document Manager")
+    
+    # File uploader
+    uploaded_files = st.file_uploader(
+        "Upload PDF documents",
+        type=["pdf"],
+        accept_multiple_files=True,
+        help="Upload one or more PDFs to ask questions about them"
+    )
+    
+    # Process uploads button
+    if uploaded_files and st.button("📥 Process documents", type="primary"):
+        # Clear old uploads and DB
+        if os.path.exists(UPLOAD_PATH):
+            shutil.rmtree(UPLOAD_PATH)
+        os.makedirs(UPLOAD_PATH, exist_ok=True)
+        
+        if os.path.exists(DB_PATH):
+            shutil.rmtree(DB_PATH)
+        
+        # Save uploaded files
+        for file in uploaded_files:
+            file_path = os.path.join(UPLOAD_PATH, file.name)
+            with open(file_path, "wb") as f:
+                f.write(file.getbuffer())
+            st.success(f"✅ Saved: {file.name}")
+        
+        # Trigger ingestion
+        with st.spinner("⏳ Embedding documents..."):
+            try:
+                if "ingest" in sys.modules:
+                    del sys.modules["ingest"]
+                # Set env var so ingest.py knows where to find PDFs
+                os.environ["PDF_SOURCE_DIR"] = UPLOAD_PATH
+                import ingest
+                st.success(f"🎉 Processed {len(uploaded_files)} document(s)!")
+                st.session_state.docs_ready = True
+                # Clear chat history when new docs uploaded
+                st.session_state.messages = [
+                    SystemMessage(content="You are a helpful assistant. Use tools when needed.")
+                ]
+                st.session_state.display = []
+                # Force tools.py to reload retriever
+                if "tools" in sys.modules:
+                    del sys.modules["tools"]
+                if "agent" in sys.modules:
+                    del sys.modules["agent"]
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Failed: {e}")
+                st.exception(e)
+    
+    # Show current docs
+    st.divider()
+    st.subheader("Current Documents")
+    if os.path.exists(UPLOAD_PATH) and os.listdir(UPLOAD_PATH):
+        for f in os.listdir(UPLOAD_PATH):
+            st.write(f"📄 {f}")
+    else:
+        # Fall back to default sample.pdf
+        st.info("Using default `data/sample.pdf`. Upload your own PDFs above.")
+
+# ============ Initial ingestion (uses default PDF if none uploaded) ============
+if "initial_ingestion_done" not in st.session_state:
+    if not os.path.exists(DB_PATH) or not os.listdir(DB_PATH):
+        with st.spinner("⏳ Building knowledge base from default PDF..."):
+            try:
+                os.environ["PDF_SOURCE_DIR"] = "./data"
+                if "ingest" in sys.modules:
+                    del sys.modules["ingest"]
+                import ingest
+                st.session_state.initial_ingestion_done = True
+            except Exception as e:
+                st.error(f"❌ Initial ingestion failed: {e}")
+                st.stop()
+    else:
+        st.session_state.initial_ingestion_done = True
+
+# ============ Chat UI ============
 if "messages" not in st.session_state:
     st.session_state.messages = [
         SystemMessage(content="You are a helpful assistant. Use tools when needed.")
