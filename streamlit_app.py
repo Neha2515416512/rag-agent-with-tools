@@ -1,3 +1,4 @@
+# streamlit_app.py
 import streamlit as st
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from agent import llm_with_tools, tool_map
@@ -9,17 +10,16 @@ import tempfile
 
 def get_db_path():
     temp_dir = tempfile.gettempdir()
-    return os.path.join(temp_dir, "rag_chroma_db")
+    return os.path.join(temp_dir, "rag_faiss_db")
 
 DB_PATH = get_db_path()
 
+# Clean up old DB to force fresh ingestion
 if os.path.exists(DB_PATH):
     try:
         shutil.rmtree(DB_PATH)
     except (PermissionError, OSError):
         pass
-
-os.makedirs(DB_PATH, exist_ok=True)
 
 st.warning("📚 Building vector database from PDF...")
 
@@ -37,25 +37,25 @@ if not pdfs:
     st.stop()
 
 try:
-    with st.spinner("⏳ Embedding PDF..."):
+    with st.spinner("⏳ Embedding PDF (1-2 min on first run)..."):
         if "ingest" in sys.modules:
             del sys.modules["ingest"]
         import ingest
 
     st.success("✅ Vector database built successfully!")
 
-    import chromadb
-    client = chromadb.PersistentClient(path=DB_PATH)
-    collections = client.list_collections()
-    if collections:
-        count = collections[0].count()
-        st.success(f"📊 {count} chunks loaded")
+    # Verify FAISS files exist
+    if os.path.exists(os.path.join(DB_PATH, "index.faiss")):
+        st.success("📊 FAISS index ready")
+    else:
+        st.warning("⚠️ FAISS index file not found")
 
 except Exception as e:
     st.error("❌ Ingestion failed:")
     st.exception(e)
     st.stop()
 
+# ============ Streamlit UI ============
 st.set_page_config(page_title="My RAG Agent", page_icon="🤖")
 st.title("🤖 RAG Agent with Tools")
 
