@@ -1,27 +1,25 @@
-# streamlit_app.py
 import streamlit as st
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from agent import llm_with_tools, tool_map
 import os
 import sys
 import shutil
+import tempfile
 
-# Use writable directory on cloud
+
 def get_db_path():
-    """Return the same writable path as ingest.py and tools.py."""
-    if os.path.exists("/tmp"):
-        return "/tmp/chroma_db"
-    return "./chroma_db"
+    temp_dir = tempfile.gettempdir()
+    return os.path.join(temp_dir, "rag_chroma_db")
 
 DB_PATH = get_db_path()
 
-# ============ Auto-ingest PDF on every cold start ============
 if os.path.exists(DB_PATH):
     try:
         shutil.rmtree(DB_PATH)
     except (PermissionError, OSError):
         pass
-    os.makedirs(DB_PATH, exist_ok=True)
+
+os.makedirs(DB_PATH, exist_ok=True)
 
 st.warning("📚 Building vector database from PDF...")
 
@@ -35,11 +33,11 @@ st.info(f"📑 PDFs detected: {pdfs}")
 st.info(f"💾 Using DB path: {DB_PATH}")
 
 if not pdfs:
-    st.error("❌ No PDF files found in 'data' folder!")
+    st.error("❌ No PDF files found!")
     st.stop()
 
 try:
-    with st.spinner("⏳ Embedding PDF (1-2 min on first run)..."):
+    with st.spinner("⏳ Embedding PDF..."):
         if "ingest" in sys.modules:
             del sys.modules["ingest"]
         import ingest
@@ -51,30 +49,26 @@ try:
     collections = client.list_collections()
     if collections:
         count = collections[0].count()
-        st.success(f"📊 {count} chunks loaded into vector database")
+        st.success(f"📊 {count} chunks loaded")
 
 except Exception as e:
-    st.error("❌ Ingestion failed with error:")
+    st.error("❌ Ingestion failed:")
     st.exception(e)
     st.stop()
 
-# ============ Streamlit UI Setup ============
 st.set_page_config(page_title="My RAG Agent", page_icon="🤖")
 st.title("🤖 RAG Agent with Tools")
 
-# Initialize session state for messages
 if "messages" not in st.session_state:
     st.session_state.messages = [
         SystemMessage(content="You are a helpful assistant. Use tools when needed.")
     ]
     st.session_state.display = []
 
-# Show chat history
 for role, content in st.session_state.display:
     with st.chat_message(role):
         st.write(content)
 
-# Chat input
 if user_input := st.chat_input("Ask me anything..."):
     with st.chat_message("user"):
         st.write(user_input)
